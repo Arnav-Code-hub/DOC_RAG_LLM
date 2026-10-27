@@ -2,7 +2,7 @@
 
 Repository: [Arnav-Code-hub/DOC_RAG_LLM](https://github.com/Arnav-Code-hub/DOC_RAG_LLM).
 
-A planned two-day prototype for asking questions about a selected set of PDFs and receiving evidence-grounded answers with document/page citations. When the documents cannot support an answer, the chatbot should say so.
+A prototype for asking questions about a selected set of PDFs and receiving evidence-grounded answers with document/page citations. When the documents cannot support an answer, the chatbot should say so.
 
 **Current status:** Phases 0–1 are complete: local setup, Docker/Qdrant persistence, a capped Groq Free request, and PDF extraction/chunking with provenance are verified. Indexing, document-chat endpoints, UI, CI, and answer-quality evaluation remain pending.
 
@@ -30,13 +30,6 @@ Use at most one successful generation request per question, approximately 2,000 
 Run evaluation sequentially with request/token-aware pacing and manual grading. Honor bounded 429 retry handling; display temporary rate limiting or confirmed quota exhaustion with reset guidance. Save progress and resume after quota resets. Never switch to a paid provider/model or upgrade the account automatically; confirm the account remains on Free. Consult [Groq rate limits](https://console.groq.com/docs/rate-limits) and [billing FAQ](https://console.groq.com/docs/billing-faqs), checked 2026-10-27.
 
 Verified setup snapshot (2026-10-27): the supplied billing screenshot shows **Free, $0, Current Plan**. For configured model `openai/gpt-oss-120b`, the organization screenshot shows 30 requests/minute, 1,000/day, 8,000 tokens/minute, and 200,000/day. A single successful 300-token-capped request consumed 78 prompt + 33 completion = 111 tokens, with 23 reasoning tokens included in the completion count. Response headers confirmed the requests/day and tokens/minute limits. Recheck project overrides, shared usage, and current limits before evaluation; this smoke check establishes access, not answer quality.
-
-## Two-day delivery plan
-Day 1: extraction, page-aware chunking, persistent indexing, document-filtered retrieval, and labeled evaluation inputs.
-
-Day 2: reranking, Groq generation/quota handling, citation validation, abstention, UI integration, CI, Docker packaging, and a manually graded evaluation report. Available quotas may extend evaluation beyond the timebox.
-
-These are timeboxes, not completed milestones: 14 focused hours plus a 2-hour buffer. Extra robustness work (crash-safe indexing, settings manifests, mock-clock retry tests, resume guards, a reranking ablation) is listed as stretch goals and starts only after the core release checklist passes. See [docs/implementation.md](docs/implementation.md) for gates and pending work.
 
 ## Documentation
 - [docs/PRD.md](docs/PRD.md): goals, scope, corpus, acceptance criteria, and risks.
