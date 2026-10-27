@@ -14,6 +14,7 @@ from app.ingest import chunk_pages, extract_pages
 from app.schemas import DocumentRecord, Passage
 
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+RESET_HINT = "run `python -m scripts.reset_index --yes` with the backend stopped, then re-ingest"
 
 
 class DocumentIndex:
@@ -33,8 +34,9 @@ class DocumentIndex:
         self.dimension = encoder.get_sentence_embedding_dimension()
         if not self.dimension or self.dimension < 1:
             raise ValueError("Embedding model must declare a positive vector dimension")
+        # Bump schema whenever extraction or chunking output changes, so old indexes fail closed.
         config = {
-            "schema": 1, "parser": pymupdf.VersionBind, "collection": settings.qdrant_collection,
+            "schema": 2, "parser": pymupdf.VersionBind, "collection": settings.qdrant_collection,
             "model": settings.embedding_model, "revision": settings.embedding_revision,
             "dimension": self.dimension, "chunk_tokens": settings.chunk_tokens,
             "chunk_overlap": settings.chunk_overlap, "query_prefix": QUERY_PREFIX,
@@ -54,7 +56,9 @@ class DocumentIndex:
             if vectors.distance != models.Distance.COSINE:
                 raise ValueError("Existing Qdrant collection must use cosine distance")
         elif ready:
-            raise ValueError("Qdrant collection is missing but the ready registry exists; rebuild both")
+            raise ValueError(
+                f"Qdrant collection is missing but the ready registry exists; {RESET_HINT}"
+            )
         else:
             self.client.create_collection(
                 settings.qdrant_collection,
@@ -67,13 +71,13 @@ class DocumentIndex:
         try:
             records = TypeAdapter(list[DocumentRecord]).validate_json(self._registry.read_bytes())
         except ValidationError as error:
-            raise ValueError("Invalid ready-document registry; restore it or rebuild the index") from error
+            raise ValueError(f"Invalid ready-document registry; restore it or {RESET_HINT}") from error
         if len({r.document_id for r in records}) != len(records) or any(
             r.document_id != r.document_hash for r in records
         ):
             raise ValueError("Invalid or duplicate document identities in the ready registry")
         if any(r.index_config_id != self.index_config_id for r in records):
-            raise ValueError("Index configuration changed; rebuild the collection and ready registry")
+            raise ValueError(f"Index configuration changed; {RESET_HINT}")
         return records
 
     def _write_documents(self, records: list[DocumentRecord]) -> None:

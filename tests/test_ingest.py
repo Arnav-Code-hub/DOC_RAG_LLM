@@ -156,6 +156,51 @@ def test_chunks_preserve_original_unicode_and_wordpiece_boundaries(tokenizer):
     assert all(i in covered for i, character in enumerate(text) if not character.isspace())
 
 
+@pytest.mark.parametrize("chunk_tokens,chunk_overlap", [(6, 2), (5, 1), (4, 2)])
+def test_chunks_start_and_end_on_word_boundaries(tokenizer, chunk_tokens, chunk_overlap):
+    text = "alpha unaffable beta unaffable gamma unaffable delta unaffable tail"
+    settings = Settings(_env_file=None, chunk_tokens=chunk_tokens, chunk_overlap=chunk_overlap)
+    chunks = chunk_pages([source_page(text)], "document", "config", settings=settings, tokenizer=tokenizer)
+    covered = set()
+    for chunk in chunks:
+        assert chunk.text == text[chunk.start_char:chunk.end_char]
+        assert len(tokenizer.encode(chunk.text, add_special_tokens=False)) <= chunk_tokens
+        assert chunk.start_char == 0 or not text[chunk.start_char - 1].isalnum()
+        assert chunk.end_char == len(text) or not text[chunk.end_char].isalnum()
+        covered.update(range(chunk.start_char, chunk.end_char))
+    assert all(i in covered for i, character in enumerate(text) if not character.isspace())
+    assert [chunk.start_char for chunk in chunks] == sorted({chunk.start_char for chunk in chunks})
+
+
+def test_word_longer_than_chunk_budget_is_split_rather_than_dropped(tokenizer):
+    text = "unaffable"
+    settings = Settings(_env_file=None, chunk_tokens=2, chunk_overlap=1)
+    chunks = chunk_pages([source_page(text)], "document", "config", settings=settings, tokenizer=tokenizer)
+    assert "".join(chunk.text for chunk in chunks).startswith("unaff")
+    assert chunks[-1].text.endswith("able")
+
+
+def test_line_break_hyphens_follow_the_documents_own_spelling():
+    pages = extract_pages(make_pdf([
+        "We cali-\nbrate models be-\ncause of drift and need context-\nrelevant data.",
+        "Because we calibrate models, decision-making uses context and relevant tools.\n"
+        "Then decision-\nmaking matters.",
+    ]), "sample.pdf")
+    assert "calibrate models because of drift" in pages[0].text
+    assert "context-relevant data" in pages[0].text
+    assert "decision-making matters" in pages[1].text
+    assert "-\n" not in pages[0].text + pages[1].text
+
+
+def test_unconfirmed_line_break_compounds_keep_the_hyphen_and_warn():
+    page = extract_pages(make_pdf([
+        "Use long-\nterm evidence and cost-\neffective controls.",
+    ]), "compound.pdf")[0]
+    assert "long-term evidence" in page.text
+    assert "cost-effective controls" in page.text
+    assert any("hyphen" in warning.lower() for warning in page.warnings)
+
+
 def test_ids_are_deterministic_config_sensitive_and_page_local(tokenizer):
     pages = extract_pages(make_pdf(["alpha beta", "", "gamma delta"]), "sample.pdf")
     first = chunk_pages(pages, "document", "config-a", settings=small_settings(), tokenizer=tokenizer)

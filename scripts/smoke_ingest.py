@@ -48,6 +48,10 @@ def main() -> None:
         for chunk in chunks:
             page = pages[chunk.page_number - 1]
             assert chunk.text == page.text[chunk.start_char:chunk.end_char]
+            assert not (chunk.start_char > 0 and page.text[chunk.start_char - 1].isalnum()
+                        and page.text[chunk.start_char].isalnum()), "Corpus chunk starts mid-word"
+            assert not (chunk.end_char < len(page.text) and page.text[chunk.end_char - 1].isalnum()
+                        and page.text[chunk.end_char].isalnum()), "Corpus chunk ends mid-word"
             plain_count = len(embedding_tokenizer.encode(chunk.text, add_special_tokens=False))
             embedding_count = len(embedding_tokenizer.encode(chunk.text))
             pair_count = len(reranker_tokenizer.encode(

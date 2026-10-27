@@ -1,7 +1,9 @@
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from time import sleep
+from types import SimpleNamespace
 from uuid import uuid4
 
 import numpy as np
@@ -13,6 +15,7 @@ from transformers import BertTokenizerFast
 from app.config import Settings
 from app.ingest import ingest_pdf
 from app.retrieval import DocumentIndex
+from scripts.reset_index import reset_index
 
 
 def pdf(*texts):
@@ -165,6 +168,61 @@ def test_changed_configuration_refuses_old_ready_registry(index):
     settings = index.settings.model_copy(update={"chunk_tokens": 12})
     with pytest.raises(ValueError, match="configuration"):
         DocumentIndex(settings=settings, encoder=index.encoder, client=index.client).list_documents()
+
+
+def test_reset_index_allows_rebuild_after_configuration_change(index):
+    ingest_pdf(pdf("alpha"), "alpha.pdf", index=index)
+    settings = index.settings.model_copy(update={"chunk_tokens": 12})
+    with pytest.raises(ValueError, match="reset_index"):
+        DocumentIndex(settings=settings, encoder=index.encoder, client=index.client)
+    removed = reset_index(settings, index.client)
+    assert len(removed) == 3
+    assert not (settings.data_dir / "pdfs").exists()
+    rebuilt = DocumentIndex(settings=settings, encoder=index.encoder, client=index.client)
+    assert rebuilt.list_documents() == []
+    assert ingest_pdf(pdf("alpha"), "alpha.pdf", index=rebuilt).chunk_count == 1
+    assert len(reset_index(settings, index.client)) == 3
+    assert reset_index(settings, index.client) == []
+
+
+def test_reset_connection_failure_preserves_local_registry_and_pdfs(index, monkeypatch):
+    ready = ingest_pdf(pdf("alpha"), "alpha.pdf", index=index)
+    registry = index.settings.data_dir / "documents.json"
+    original = registry.read_bytes()
+
+    def unavailable(collection):
+        raise RuntimeError("Qdrant unavailable")
+
+    monkeypatch.setattr(index.client, "collection_exists", unavailable)
+    with pytest.raises(RuntimeError, match="Qdrant unavailable"):
+        reset_index(index.settings, index.client)
+    assert registry.read_bytes() == original
+    assert (index.settings.data_dir / "pdfs" / f"{ready.document_hash}.pdf").exists()
+
+
+def test_reset_rejects_a_pdf_directory_resolving_outside_data_dir(index, monkeypatch):
+    ready = ingest_pdf(pdf("alpha"), "alpha.pdf", index=index)
+    pdfs = index.settings.data_dir / "pdfs"
+    original_resolve = Path.resolve
+
+    def resolve(path, *args, **kwargs):
+        if path == pdfs:
+            return index.settings.data_dir.parent / "outside"
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    with pytest.raises(ValueError, match="Unsafe|unsafe|outside|symlink"):
+        reset_index(index.settings, index.client)
+    assert index.list_documents() == [ready] and point_count(index) == 1
+    assert pdfs.exists()
+
+
+def test_reset_refuses_filesystem_root_before_any_deletion(index, monkeypatch):
+    settings = index.settings.model_copy(update={"data_dir": Path(index.settings.data_dir.anchor)})
+    monkeypatch.setattr(Path, "exists", lambda path: False)
+    client = SimpleNamespace(collection_exists=lambda name: False)
+    with pytest.raises(ValueError, match="Unsafe|unsafe|root"):
+        reset_index(settings, client)
 
 
 def test_missing_collection_does_not_reuse_stale_ready_registry(index):
