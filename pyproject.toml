@@ -1,0 +1,43 @@
+[project]
+name = "pdf-rag-chatbot"
+version = "0.1.0"
+description = "Local PDF retrieval with cited answers using Groq Free"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi>=0.115,<0.136",
+    "uvicorn>=0.30,<1",
+    "pydantic-settings>=2.6,<3",
+    "httpx>=0.27,<1",
+    "python-multipart>=0.0.18,<1",
+    "pymupdf>=1.25,<2",
+    "sentence-transformers>=3.4,<6",
+    "transformers>=4.48,<5",
+    "torch>=2.6,<3",
+    "qdrant-client>=1.15,<1.16",
+    "groq>=0.20,<3",
+    "streamlit>=1.40,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["integration: requires external services or model downloads"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["ponytail-inspection", "ponytail-hook-check", ".tools", ".runtime", ".cache", ".superpowers"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

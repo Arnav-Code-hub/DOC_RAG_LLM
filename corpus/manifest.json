@@ -1,0 +1,30 @@
+{
+  "recorded_on": "2026-10-27",
+  "reuse_policy_url": "https://www.nist.gov/open/license",
+  "documents": [
+    {
+      "id": "nist-ai-rmf",
+      "title": "NIST AI 100-1: AI Risk Management Framework 1.0",
+      "url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf",
+      "sha256": "7576edb531d9848825814ee88e28b1795d3a84b435b4b797d3670eafdc4a89f1",
+      "pages": 48,
+      "bytes": 1946127
+    },
+    {
+      "id": "nist-genai-profile",
+      "title": "NIST AI 600-1: Generative Artificial Intelligence Profile",
+      "url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf",
+      "sha256": "6e73620ab6b64e90ef2c04bf0e0d6246185a2f4b1b13cab0df494496cff89b6a",
+      "pages": 64,
+      "bytes": 1174643
+    },
+    {
+      "id": "nist-csf-2",
+      "title": "NIST CSWP 29: Cybersecurity Framework 2.0",
+      "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+      "sha256": "3c31f46fee98cac0c4323453e5109291a213b4de7fef8c058af9bf67f717433c",
+      "pages": 32,
+      "bytes": 1518858
+    }
+  ]
+}
