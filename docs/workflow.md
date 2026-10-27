@@ -1,14 +1,14 @@
 # Project workflow
 
-Status: Phase 0 setup and its capped Groq Free request passed; local PDF validation, page extraction, and chunking are implemented and verified in Phase 1. API uploads, index persistence, retrieval, and answers below remain intended behavior; no complete chatbot is available yet.
+Status: Phases 0–2 passed, including the local Python ingestion/index/search path and real-Qdrant restart verification. HTTP uploads, reranking, answers, and UI remain planned; no complete chatbot is available yet.
 
 ## Ingestion
 1. User submits a text-based PDF in Streamlit; FastAPI checks file size, actual PDF readability, encryption, and page limit.
-2. Hash file bytes. If that hash is already in the ready-document list, return the existing record.
+2. Hash file bytes. The full SHA-256 is the runtime document ID; corpus manifest names are readable aliases. If the hash is already ready, return the existing record and preserve its original display filename.
 3. Extract text page by page with PyMuPDF. Preserve physical page numbers even when earlier pages contain no extractable text.
 4. Normalize whitespace without discarding meaningful content, then create page-local overlapping token chunks with stable provenance.
 5. Embed batches, validate vector dimensions, and upsert deterministic point IDs into Qdrant.
-6. Add the document to `documents.json` only after all its points are written. On failure, delete its points so it stays unqueryable. Return warnings for empty or suspicious pages.
+6. Persist the original PDF under its hash and atomically add the document to `documents.json` only after all its points are written. On failure, attempt point/PDF cleanup; the document remains outside the ready registry even if cleanup storage is unavailable. Retry clears stale points before writing. Return warnings for empty or suspicious pages. Use one writer process.
 
 ## Question answering
 1. User selects ready documents and submits a question. Reject an empty selection instead of searching every document implicitly.

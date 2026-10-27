@@ -31,3 +31,17 @@ class Chunk(BaseModel):
     text: str
     start_char: int = Field(ge=0)
     end_char: int = Field(gt=0)
+
+
+class DocumentRecord(BaseModel):
+    document_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    document_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    index_config_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    filename: str
+    page_count: int = Field(gt=0)
+    chunk_count: int = Field(gt=0)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class Passage(Chunk):
+    score: float = Field(allow_inf_nan=False)

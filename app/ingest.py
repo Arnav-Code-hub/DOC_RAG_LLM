@@ -3,14 +3,17 @@ import re
 from bisect import bisect_right
 from functools import lru_cache
 from pathlib import PureWindowsPath
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 from uuid import NAMESPACE_URL, uuid5
 
 import pymupdf
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from app.config import Settings, load_settings
-from app.schemas import Chunk, Page
+from app.schemas import Chunk, DocumentRecord, Page
+
+if TYPE_CHECKING:
+    from app.retrieval import DocumentIndex
 
 
 def read_pdf_bytes(stream: BinaryIO, *, settings: Settings | None = None) -> bytes:
@@ -136,3 +139,11 @@ def chunk_pages(
             start = max(start + 1, end - settings.chunk_overlap)
             ordinal += 1
     return chunks
+
+
+def ingest_pdf(
+    pdf_bytes: bytes, filename: str, *, index: "DocumentIndex | None" = None,
+) -> DocumentRecord:
+    from app.retrieval import get_index
+
+    return (index if index is not None else get_index()).ingest_pdf(pdf_bytes, filename)

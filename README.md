@@ -4,7 +4,7 @@ Repository: [Arnav-Code-hub/DOC_RAG_LLM](https://github.com/Arnav-Code-hub/DOC_R
 
 A prototype for asking questions about a selected set of PDFs and receiving evidence-grounded answers with document/page citations. When the documents cannot support an answer, the chatbot should say so.
 
-**Current status:** Phases 0–1 are complete: local setup, Docker/Qdrant persistence, a capped Groq Free request, and PDF extraction/chunking with provenance are verified. Indexing, document-chat endpoints, UI, CI, and answer-quality evaluation remain pending.
+**Current status:** Phases 0–2 are complete: local setup, extraction/chunking, persistent Qdrant indexing, and document-filtered dense search are verified. Document-chat endpoints, reranking, UI, CI, and answer-quality evaluation remain pending.
 
 ## Planned capabilities
 - Extract text page by page with PyMuPDF and retain physical PDF page numbers.
@@ -55,7 +55,7 @@ uv run python -m scripts.smoke_ingest
 
 The corpus fetch verifies pinned hashes and physical page counts. The model smoke command explicitly downloads pinned models and runs assertions; it makes no Groq calls. In this Windows session, the Python executable's outbound sockets were denied, so the corpus/model snapshots were fetched through Windows HTTPS and Python model inference was verified offline. This is an environment limitation, not a completed live-download check. On a similarly restricted machine, use an approved network/runtime or prepopulate the cache rather than disabling TLS verification.
 
-The ingestion smoke uses cached tokenizers and verifies all three PDFs without network/API requests. Current checks: 41 offline tests pass; 144 corpus pages yield 453 chunks with source coverage and token budgets checked. These are implementation checks, not answer-accuracy results. Complex table layouts still require inspection, and scanned PDFs need OCR outside the MVP. Full multipart upload limits will be enforced when the API upload route is implemented in Phase 6.
+The ingestion smoke uses cached tokenizers and verifies all three PDFs without network/API requests. Current checks: 63 offline tests pass; 144 corpus pages yield 453 chunks with source coverage and token budgets checked. These are implementation checks, not answer-accuracy results. Complex table layouts still require inspection, and scanned PDFs need OCR outside the MVP. Full multipart upload limits will be enforced when the API upload route is implemented in Phase 6.
 
 For the local uv bootstrap used in this workspace, `.tools/bin/uv.exe` and project-local Python under `.runtime/python/` are ignored setup artifacts, not committed dependencies. The checked-in `uv.lock` is the reproducible dependency specification. Offline tests use synthetic PDFs and stubs, without model downloads or Groq credentials. If Windows restricts its default temporary folder, pass a fresh project-local `--basetemp .cache/pytest-local` to pytest.
 
@@ -69,11 +69,29 @@ The successful Groq check on this restricted network used the container runtime 
 
 Target complete-demo workflow: fetch the corpus, configure backend-only Groq environment variables (each reviewer needs their own Free key), then `docker compose up --build`. The full PDF/chat/UI flow remains planned. Model downloads and internet access for Groq are required; the finished demo will not be an offline app.
 
+## Local index
+Phase 2 exposes Python entry points `app.ingest.ingest_pdf`, `app.retrieval.list_documents`, and `app.retrieval.search`. The shared `DocumentIndex` loads the embedding model once, serializes ingestion, stores original PDFs under hash-derived names, and atomically publishes `documents.json` after vector writes. Repeating the same bytes returns the existing record. Runtime document IDs are full SHA-256 hashes; corpus manifest IDs are readable aliases.
+
+Search requires explicitly selected ready document IDs and applies document/configuration filters inside Qdrant. It preserves passage text, offsets, physical pages, and dense scores. Missing/unknown selections fail; incompatible vector dimensions, distance, changed indexing settings, and stale/corrupt ready registries fail explicitly. Changing models/chunk settings requires rebuilding the collection and ready registry together. Dense scores are not answer-confidence probabilities.
+
+`uv run python -m scripts.smoke_index` is an explicit integration check requiring a reachable Qdrant service, the downloaded corpus, and cached/downloadable embedding weights. It checks actual embeddings, duplicate ingestion, selected-document filtering, and a deliberately failed vector write; it makes no Groq requests. Run again with `--verify-only` after restart to check persisted records and vectors without ingestion. The local Compose service keeps Qdrant internal, so run this smoke inside the backend container. Multiple writer processes and crash reconciliation are outside the current single-process contract.
+
+Verified PowerShell commands after the earlier corpus/model setup and backend build:
+
+```powershell
+docker compose up -d --wait --wait-timeout 45 backend
+$modelMount = (Join-Path (Get-Location).Path '.cache/huggingface') + ':/models:ro'
+$corpusMount = (Join-Path (Get-Location).Path 'corpus/pdfs') + ':/app/corpus/pdfs:ro'
+docker compose run --rm --no-deps -v $modelMount -v $corpusMount -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 backend /app/.venv/bin/python -m scripts.smoke_index
+```
+
+These commands mount the cached weights and source corpus read-only; application data and vectors persist on Compose volumes. To repeat the persistence check, restart Qdrant with `docker compose restart qdrant`, run the `up --wait` command above, then append `--verify-only` to the smoke command. On 2026-10-27, all three PDFs produced 453 unique 384-dimensional vectors (143/213/97 chunks), and ready records, original PDF hashes, vector counts, and filtered searches passed after restart. A fresh source review reported no findings. This is index verification, not a retrieval-quality or answer-accuracy result.
+
 No evaluation has run. Planned release targets include at least 12/14 answerable questions correct and grounded, at least 5/6 unanswerable questions refused, and zero invalid citation references. Publish actual counts, latency, source-support judgments, and failures before claiming accuracy.
 
-Planned submission: a GitHub repository with verified setup and clear structure, a Dockerized FastAPI/Streamlit/Qdrant demo, and `eval/report.md` containing metrics, error analysis, failure examples, token usage, quota interruptions, and bias/ethical risks. A three-minute video is optional. These deliverables remain pending.
+The repository is published at the link above. The complete Dockerized FastAPI/Streamlit/Qdrant demo and `eval/report.md` remain pending; the report will cover metrics, error analysis, failure examples, token usage, quota interruptions, and bias/ethical risks. A three-minute video is optional.
 
 ## Repository layout
-This `README.md` is the landing page, and specifications live in `docs/`. `app/ingest.py` implements local extraction/chunking with `Page`/`Chunk` metadata in `app/schemas.py`; `scripts/` contains explicit corpus/model/ingestion smoke checks. Index persistence, retrieval, answers, UI, and evaluation data/report remain pending. `docs/Design.md` remains empty.
+This `README.md` is the landing page, and specifications live in `docs/`. `app/ingest.py` exposes ingestion; `app/retrieval.py` owns the persistent index and filtered dense search. Typed records live in `app/schemas.py`; `scripts/` contains explicit corpus/model/ingestion/index smoke checks. Reranking, answers, UI, and evaluation data/report remain pending. `docs/Design.md` remains empty.
 
 Project licensing has not been selected. Verify document, library, and model licenses before redistribution.

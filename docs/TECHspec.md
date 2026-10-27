@@ -1,6 +1,6 @@
 # Technical specification
 
-Status: Phases 0–1 passed: local dependencies/models are pinned, PDF extraction/chunking is verified, and one capped Groq Free request succeeded. Indexing, retrieval, cited generation, and UI sections remain implementation targets.
+Status: Phases 0–2 passed, including real-server persistence and filtered dense search. Reranking, cited generation, HTTP document/chat endpoints, and UI remain implementation targets.
 
 ## Stack
 - Python 3.11, FastAPI, Pydantic, Uvicorn: typed API and input validation.
@@ -23,9 +23,13 @@ Start at a 300-token chunk target and 60-token overlap. Split within pages, favo
 
 Implemented contract: `extract_pages()` returns physical Page records including blank-page warnings; `chunk_pages()` emits only tokenizable text, with exact slices of whitespace-normalized page text and character offsets. It preserves tokenizer-ignored Unicode at slice edges, verifies actual re-encoded budgets, and rejects nonempty pages with no token offsets. `Page.storage_name` derives only from the validated document hash; supplied filenames are display basenames. `read_pdf_bytes()` caps binary reads, while complete multipart-body enforcement awaits Phase 6. Numbered-table mentions trigger a heuristic layout warning; this does not detect all tables or preserve table relationships.
 
-Each Qdrant point stores `document_id`, `document_hash`, `filename`, `page_number` (one-based physical PDF page), `chunk_id`, `text`, and `index_config_id`. Point IDs are deterministic UUIDs derived from content hash, indexing configuration, page, and chunk ordinal. Filename is display metadata, never an identity or filesystem path.
+Each Qdrant point stores `document_id`, `document_hash`, `filename`, `page_number` (one-based physical PDF page), `chunk_id`, `text`, `start_char`, `end_char`, and `index_config_id`. Point IDs are deterministic UUIDs derived from content hash, indexing configuration, page, and chunk ordinal. Runtime document IDs equal their full SHA-256 hashes; manifest names such as `nist-ai-rmf` are aliases, not runtime selection IDs. Filename is display metadata, never an identity or filesystem path.
 
-Embedding dimension comes from the loaded model; an existing collection with a different dimension is an error. Changing models or chunk settings means deleting the collection and re-ingesting. Ready documents are listed in `documents.json` on the data volume, and a document is added only after all its chunks are written. On failure, that document's points are deleted, so a failed ingestion never becomes selectable. A full settings manifest that refuses incompatible reuse is a stretch goal (see [implementation.md](implementation.md#stretch-goals-only-after-the-release-checklist-passes)).
+`DocumentIndex` creates a cosine collection using the loaded embedding dimension. It rejects an incompatible existing dimension/distance rather than replacing data. Ready records include hash, configuration ID, filename, physical page/chunk counts, and warnings. Original PDFs persist at `DATA_DIR/pdfs/<hash>.pdf`; `DATA_DIR/documents.json` is replaced atomically only after all vector writes. Failed ingestions stay outside the ready registry; cleanup deletes their points/PDF, and a retry first removes leftover points for that document/configuration. Cleanup cannot be guaranteed while storage is unavailable, so the ready-document filter also excludes unready leftovers.
+
+The configuration hash covers model/revision, parser version, chunk settings, vector dimension, normalization, query formatting, collection name, and a schema version. Changed configuration, malformed/duplicate registry records, or a missing collection with existing ready records fail closed. Rebuild both the collection and ready registry when intentionally changing configuration. Full crash reconciliation and a richer manifest remain stretch goals. Use one worker and one writer process; the shared singleton guards concurrent first use and serializes ingestion, while separate processes are unsupported.
+
+`search()` validates selected IDs against ready records, adds both document-ID and configuration filters inside Qdrant, and returns typed `Passage` metadata plus a finite dense score. It rejects empty/unknown selections and over-budget input rather than falling back to unrestricted search or truncating. BGE's query instruction is added only to queries; passages remain unchanged. See the [BGE model card](https://huggingface.co/BAAI/bge-small-en-v1.5) and [Qdrant filter documentation](https://qdrant.tech/documentation/search/filtering/). Phase 3 adds reranking and complete query/passage pair-budget checks.
 
 ## Retrieval and generation
 1. Validate query and require a nonempty set of ready document IDs.

@@ -1,6 +1,6 @@
 # PDF RAG Chatbot Implementation Plan
 
-> For agentic workers: implement task by task using the executing-plans skill. Checkboxes record verified progress; Phases 0–1 are complete and Phases 2–9 remain pending. This document does not authorize publishing or spending beyond the user's stated scope.
+> For agentic workers: implement task by task using the executing-plans skill. Checkboxes record verified progress; Phases 0–2 are complete and Phases 3–9 remain pending. This document does not authorize publishing or spending beyond the user's stated scope.
 
 **Goal:** Deliver a reproducible Dockerized PDF chatbot, a GitHub repository, and an honest evaluation report within two focused working days where hardware and free quotas permit.
 
@@ -8,7 +8,7 @@
 
 **Tech stack:** Python 3.11, FastAPI/Pydantic/Uvicorn, Streamlit, PyMuPDF, sentence-transformers, Qdrant, Groq Python SDK, Docker Compose, uv, pytest, Ruff, GitHub Actions.
 
-**Specifications:** [PRD.md](PRD.md), [TECHspec.md](TECHspec.md), [workflow.md](workflow.md), and [rules.md](rules.md). Read these alongside this plan. Status as of 2026-10-27: Phase 0 prerequisites, Free-plan/quota evidence, and capped generation smoke passed; Phase 1 extraction/chunking is complete. Phases 2–9 remain pending. Checkboxes record verified progress only, not quality evaluation or full application readiness.
+**Specifications:** [PRD.md](PRD.md), [TECHspec.md](TECHspec.md), [workflow.md](workflow.md), and [rules.md](rules.md). Read these alongside this plan. Status as of 2026-10-27: Phases 0–2 passed, including the Groq readiness gate, extraction/chunking, persistent indexing, and selected-document dense search. Phases 3–9 remain pending. Checkboxes record verified progress only, not quality evaluation or full application readiness.
 
 ## Global constraints
 - Single-user local demo; primarily English, text-based PDFs. No OCR, public hosting, agents, authentication, fine-tuning, or multi-tenant access in the MVP.
@@ -112,14 +112,22 @@ Exactly **one** live `scripts/smoke_groq.py` generation request succeeded, with 
 **Gate:** manually compare extracted passages against the original PDFs, including a multi-column or table-heavy page. If extraction is wrong, fix or flag it before indexing; retrieval cannot recover missing evidence.
 
 ## Phase 2 — persist a filtered Qdrant index (Day 1, 1.5h)
-**Files:** `app/retrieval.py`, ingestion orchestration in `app/ingest.py`, `tests/test_index.py`.
+**Files:** `app/retrieval.py`, ingestion entry point in `app/ingest.py`, records in `app/schemas.py`, `tests/test_index.py`, and `scripts/smoke_index.py`.
 
 **Interfaces:** `ingest_pdf(pdf_bytes: bytes, filename: str) -> DocumentRecord`; `list_documents() -> list[DocumentRecord]`; `search(question: str, document_ids: list[str], limit: int = 20) -> list[Passage]`. Records include document ID/hash, filename, page count, chunk count, and warnings.
 
-- [ ] Test `test_repeat_ingestion_is_idempotent`, `test_failed_ingestion_not_listed`, and `test_unselected_document_excluded` with stubs, plus one explicit local-Qdrant integration check.
-- [ ] Create the collection with the dimension of the loaded embedding model; fail with a clear error if an existing collection has a different dimension.
-- [ ] Serialize ingestion. If the document hash is already in `documents.json`, return the existing record. Otherwise delete any leftover points for that document ID, upsert chunks with deterministic IDs, then add the record to `documents.json`. On failure, delete that document's points and return the error.
-- [ ] Search only document IDs present in `documents.json`, with the document filter applied inside Qdrant. Never search all documents when the selection is missing or invalid. Passage metadata must survive conversion into API-facing evidence.
+- [x] Test `test_repeat_ingestion_is_idempotent`, `test_failed_ingestion_not_listed`, and `test_unselected_document_excluded` with stubs, plus one explicit local-Qdrant integration check.
+- [x] Create the collection with the dimension of the loaded embedding model; fail with a clear error if an existing collection has a different dimension.
+- [x] Serialize ingestion. If the document hash is already in `documents.json`, return the existing record. Otherwise delete leftover points for that document/configuration, upsert chunks with deterministic IDs, then atomically add the record to `documents.json`. On failure, attempt point/PDF cleanup and return the error; the document stays unready even if storage is unavailable during cleanup.
+- [x] Search only document IDs present in `documents.json`, with document and active-configuration filters applied inside Qdrant. Never search all documents when the selection is missing or invalid. Passage metadata survives conversion into typed evidence.
+
+**Verified Phase 2 evidence (2026-10-27):** 63 offline tests passed (22 index cases plus the 41-case baseline); Ruff passed and the backend image built successfully. Index cases cover named gates, partial upsert and atomic registry-replacement failures, physical page/offset provenance, config filtering, incompatible dimensions/distance, missing/corrupt/duplicate registries, query token limits, document limits, bad vectors, and concurrent use. A cold-start regression first failed with eight index/model instances; locked singleton construction now creates one.
+
+The real `scripts/smoke_index.py` check used pinned BGE CPU weights and Qdrant 1.15.5: three NIST PDFs, 144 physical pages, 453 unique 384-dimensional vectors (143/213/97 chunks). Re-ingestion preserved point counts and records. Searches restricted to each selected document, plus a multi-document selection, returned only allowed metadata. An intentional server upsert followed by a simulated exception removed the partial document's points/PDF and preserved all ready documents. No Groq requests or answer grading occurred.
+
+Qdrant was restarted and the rebuilt backend recreated. A separate `--verify-only` container reloaded the ready registry, checked stored PDF hashes and unchanged vector counts, and repeated filtered searches successfully without ingestion. Configuration ID: `799563acd1ba4ff04d7276495a82f003175dccdc7f6147a25fe00cb001ce2e8d`. Cached model/corpus mounts were read-only; PDFs, registry, vectors, and model artifacts stay outside Git.
+
+**Review and limits:** one fresh source review found no substantiated issues. The reviewer did not independently rerun runtime checks; the restart evidence above is from the implementer. One cached index and one writer process are supported; cross-process writes, power-loss durability, complete corruption/orphan reconciliation, and sustained-load performance are not claimed. Retrieval relevance/reranking, citations, uploads, UI, CI, and final evaluation remain later phases. Commands are recorded in the root README. Local feature branch: `codex/phase-2-index`; no automatic publication is implied by this checkpoint.
 
 **Gate:** repeat ingestion creates no duplicate chunks; restart preserves ready documents; a simulated failed ingestion is not listed; selected-document search cannot return another document.
 
